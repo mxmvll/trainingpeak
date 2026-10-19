@@ -154,15 +154,46 @@ def cmd_auth_clear() -> int:
     return 0
 
 
-def cmd_serve() -> int:
+def cmd_serve(args: list[str] | None = None) -> int:
     """Start the MCP server.
+
+    Args:
+        args: Extra CLI args. ``--http`` serves Streamable HTTP instead of stdio,
+              with optional ``--host`` and ``--port`` (defaults from TP_MCP_HOST /
+              PORT env vars, then 127.0.0.1:8000).
 
     Returns:
         Exit code.
     """
-    from tp_mcp.server import run_server
+    import os
 
-    return run_server()
+    args = args or []
+    if "--http" not in args:
+        from tp_mcp.server import run_server
+
+        return run_server()
+
+    host = os.environ.get("TP_MCP_HOST", "127.0.0.1")
+    port_str = os.environ.get("PORT", "8000")
+    for flag in ("--host", "--port"):
+        if flag in args:
+            idx = args.index(flag)
+            if idx + 1 >= len(args):
+                print(f"Error: {flag} requires a value")
+                return 1
+            if flag == "--host":
+                host = args[idx + 1]
+            else:
+                port_str = args[idx + 1]
+    try:
+        port = int(port_str)
+    except ValueError:
+        print(f"Error: invalid port: {port_str}")
+        return 1
+
+    from tp_mcp.http_server import run_http_server
+
+    return run_http_server(host, port)
 
 
 def cmd_config() -> int:
@@ -210,13 +241,16 @@ def cmd_help() -> int:
     print("  auth-status           Check authentication status")
     print("  auth-clear            Clear stored cookie")
     print("  config                Output Claude Desktop config snippet")
-    print("  serve                 Start the MCP server")
+    print("  serve                 Start the MCP server (stdio)")
+    print("    --http              Serve Streamable HTTP instead (remote connector)")
+    print("    --host H --port P   Bind address (default 127.0.0.1:8000; env TP_MCP_HOST / PORT)")
     print("  help                  Show this help message")
     print()
     print("Examples:")
     print("  tp-mcp auth                      # Manual cookie entry")
     print("  tp-mcp auth --from-browser auto  # Auto-detect browser")
     print("  tp-mcp auth --from-browser chrome")
+    print("  TP_MCP_HTTP_TOKEN=... tp-mcp serve --http --host 0.0.0.0")
     print()
     return 0
 
@@ -245,11 +279,13 @@ def main() -> int:
                 return 1
         return cmd_auth(from_browser=from_browser)
 
+    if command == "serve":
+        return cmd_serve(sys.argv[2:])
+
     commands = {
         "auth-status": cmd_auth_status,
         "auth-clear": cmd_auth_clear,
         "config": cmd_config,
-        "serve": cmd_serve,
         "help": cmd_help,
         "--help": cmd_help,
         "-h": cmd_help,

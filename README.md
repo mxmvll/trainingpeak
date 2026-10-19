@@ -281,6 +281,43 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 
 Restart Claude Desktop. You're ready to go!
 
+### Option C: Remote Connector (claude.ai web & mobile)
+
+Run the server over **Streamable HTTP** on a host you control, then add it in claude.ai under **Settings -> Connectors -> Add custom connector**. This makes TrainingPeaks available in Claude on the web and on your phone, not just in Claude Desktop.
+
+This is a **single-athlete** deployment: the server acts as whoever's cookie it holds, so the endpoint is protected by a shared secret, `TP_MCP_HTTP_TOKEN`.
+
+```bash
+# 1. Generate the shared secret (keep it private - it is part of the connector URL)
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# 2. Run it (locally, or in the container below)
+export TP_AUTH_COOKIE="<Production_tpAuth value>"
+export TP_MCP_HTTP_TOKEN="<secret from step 1>"
+tp-mcp serve --http --host 0.0.0.0 --port 8000
+```
+
+Or with Docker (works on Fly.io, Render, Railway, Cloud Run, a VPS, ...; the image honours the platform's `PORT`):
+
+```bash
+docker build -t tp-mcp .
+docker run -p 8000:8000 -e TP_AUTH_COOKIE -e TP_MCP_HTTP_TOKEN tp-mcp
+```
+
+Put it behind HTTPS (every platform above does this for you), then connect a client:
+
+| Client | How to connect |
+|--------|----------------|
+| claude.ai custom connector | URL `https://<your-host>/<TP_MCP_HTTP_TOKEN>/mcp` (leave OAuth fields empty) |
+| Claude Code | `claude mcp add --transport http trainingpeaks https://<your-host>/mcp --header "Authorization: Bearer <TP_MCP_HTTP_TOKEN>"` |
+| Health check | `GET /healthz` (unauthenticated, returns status + version only) |
+
+Notes:
+- `TP_MCP_HTTP_TOKEN` is **required** whenever the server binds a non-loopback address; it must be at least 32 characters of `A-Z a-z 0-9 - _`. Requests without a valid secret get a plain `404`.
+- The server runs **stateless** (each request is self-contained), so restarts and scale-to-zero don't break the connector.
+- HTTP access logs are disabled so the secret URL never lands in logs. Rotate the secret by changing `TP_MCP_HTTP_TOKEN` and updating the connector URL.
+- When the cookie expires (every few weeks), update `TP_AUTH_COOKIE` in your host's secrets and restart.
+
 ---
 
 ## Structured Workouts
@@ -379,7 +416,7 @@ Example with a planned start time:
 
 ## Security
 
-**TL;DR: Your cookie is encrypted on disk, exchanged for short-lived OAuth tokens, never shown to Claude, and only ever sent to TrainingPeaks. The server has no network ports.**
+**TL;DR: Your cookie is encrypted on disk, exchanged for short-lived OAuth tokens, never shown to Claude, and only ever sent to TrainingPeaks. By default the server has no network ports.**
 
 This server is designed with defence-in-depth. Your TrainingPeaks session cookie is sensitive - it grants access to your training data - so we treat it accordingly.
 
@@ -415,9 +452,11 @@ cj = func(domain_name=".trainingpeaks.com")
 
 Claude cannot modify this via tool parameters. The only parameter is `browser` (chrome/firefox/etc), not the domain. To change the domain would require modifying the source code.
 
-### No Network Exposure
+### No Network Exposure (by default)
 
-The MCP server uses **stdio transport only** - it communicates with Claude Desktop via stdin/stdout, not over the network. There is no HTTP server, no open ports, no remote access.
+By default (`tp-mcp serve`) the MCP server uses **stdio transport** - it communicates with Claude Desktop via stdin/stdout, not over the network. There is no HTTP server, no open ports, no remote access.
+
+The optional remote mode (`tp-mcp serve --http`, see [Option C](#option-c-remote-connector-claudeai-web--mobile)) is opt-in, refuses to bind a public address without a `TP_MCP_HTTP_TOKEN` shared secret, compares that secret in constant time, and does not write request paths to its logs.
 
 ### Open Source
 
