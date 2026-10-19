@@ -102,3 +102,27 @@ class TestProtocolOverHttp:
     def test_no_token_on_loopback(self):
         with TestClient(build_app(None, host="127.0.0.1"), base_url="http://127.0.0.1:8000") as c:
             self._assert_handshake(c, "/mcp")
+
+
+class TestVercelEntrypoint:
+    def _load(self):
+        import importlib.util
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "app.py"
+        spec = importlib.util.spec_from_file_location("vercel_app", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_serves_gated_app(self, monkeypatch):
+        monkeypatch.setenv(TOKEN_ENV_VAR, TOKEN)
+        module = self._load()
+        with TestClient(module.app, base_url="https://tp.example.com") as c:
+            assert c.post("/mcp", json=INITIALIZE, headers=HEADERS).status_code == 404
+            assert c.post(f"/{TOKEN}/mcp", json=INITIALIZE, headers=HEADERS).status_code == 200
+
+    def test_fails_closed_without_token(self, monkeypatch):
+        monkeypatch.delenv(TOKEN_ENV_VAR, raising=False)
+        with pytest.raises(ValueError, match=TOKEN_ENV_VAR):
+            self._load()
