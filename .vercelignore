@@ -1,0 +1,6 @@
+tests
+docs
+scripts
+*.png
+Dockerfile
+.dockerignore

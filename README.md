@@ -304,6 +304,8 @@ docker build -t tp-mcp .
 docker run -p 8000:8000 -e TP_AUTH_COOKIE -e TP_MCP_HTTP_TOKEN tp-mcp
 ```
 
+**Vercel:** the repo root has an `app.py` entrypoint and `vercel.json`, so importing the repo as a Vercel project deploys it as a Python Function. Add `TP_AUTH_COOKIE` and `TP_MCP_HTTP_TOKEN` as (sensitive) environment variables, then deploy to **production** (preview deployments sit behind Vercel Authentication, which remote MCP clients can't pass).
+
 Put it behind HTTPS (every platform above does this for you), then connect a client:
 
 | Client | How to connect |
